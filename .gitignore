@@ -11,3 +11,4 @@ playwright-report/
 artifacts/
 .playwright-cli/
 output/
+.claude/

@@ -74,6 +74,7 @@ export type Engine = {
 };
 export type Quarantine = {
   id: string;
+  findingId?: string;
   originalPath?: string;
   path?: string;
   quarantinedAt?: string;

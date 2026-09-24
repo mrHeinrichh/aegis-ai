@@ -7,7 +7,7 @@ import {
   Network as NetworkIcon,
   Activity,
   HardDrive,
-  Sparkles,
+  MessageSquareText,
   Settings as SettingsIcon,
   ArrowUpRight,
   ArrowRight,
@@ -61,7 +61,7 @@ const nav = [
   ["Performance", Activity],
   ["Device cleanup", HardDrive],
   ["Quarantine", Archive],
-  ["AI assistant", Sparkles],
+  ["AI assistant", MessageSquareText],
   ["Settings", SettingsIcon],
 ] as const;
 const bytes = (n: number) =>
@@ -111,26 +111,96 @@ function Toggle({
     </div>
   );
 }
-function Sparkline({
-  color = "var(--mint)",
-  variant = 0,
-}: {
-  color?: string;
-  variant?: number;
-}) {
+function BrandMark({ className = "" }: { className?: string }) {
   return (
-    <svg className="sparkline" viewBox="0 0 180 42" aria-hidden="true">
+    <svg className={className} viewBox="0 0 64 64" aria-hidden="true">
       <path
-        d={
-          variant === 1
-            ? "M0 32 15 30 30 32 45 24 60 27 75 17 90 22 105 15 120 20 135 11 150 16 165 9 180 12"
-            : "M0 31 12 31 24 24 36 29 48 17 60 24 72 21 84 27 96 11 108 20 120 16 132 23 144 10 156 18 168 8 180 12"
-        }
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M8 8h48v29L32 59 8 37V8Zm12 33 12-26 12 26h-8l-4-10-4 10h-8Z"
       />
     </svg>
+  );
+}
+const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
+const SEVERITY_LABEL: Record<string, string> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  info: "Info",
+};
+const sevTone = (severity: string) =>
+  severity === "critical"
+    ? "critical"
+    : severity === "high"
+      ? "danger"
+      : severity === "medium"
+        ? "amber"
+        : severity === "low"
+          ? "slate"
+          : "neutral";
+const loadState = (percent?: number) =>
+  percent == null
+    ? "none"
+    : percent >= 88
+      ? "high"
+      : percent >= 70
+        ? "warn"
+        : "ok";
+function ReviewRing({ findings }: { findings: Finding[] }) {
+  const total = findings.length;
+  const groups = SEVERITIES.map((severity) => ({
+    severity,
+    count: findings.filter((f) => f.severity === severity).length,
+  })).filter((group) => group.count > 0);
+  const radius = 58;
+  const circumference = 2 * Math.PI * radius;
+  const gap = groups.length > 1 ? 11 : 0;
+  let travelled = 0;
+  return (
+    <div className="review-ring">
+      <div className="ring-plot">
+        <svg viewBox="0 0 140 140" aria-hidden="true">
+          <circle className="ring-track" cx="70" cy="70" r={radius} />
+          {groups.map(({ severity, count }) => {
+            const length = (count / total) * circumference;
+            const dash = Math.max(length - gap, 3);
+            const arc = (
+              <circle
+                key={severity}
+                className="ring-arc"
+                data-severity={severity}
+                cx="70"
+                cy="70"
+                r={radius}
+                strokeDasharray={`${dash} ${circumference - dash}`}
+                strokeDashoffset={-travelled}
+              />
+            );
+            travelled += length;
+            return arc;
+          })}
+        </svg>
+        <div className="ring-center">
+          <strong>{total}</strong>
+          <span>{total === 1 ? "item to review" : "items to review"}</span>
+        </div>
+      </div>
+      <ul className="ring-legend">
+        {groups.length ? (
+          groups.map(({ severity, count }) => (
+            <li key={severity} data-severity={severity}>
+              <i />
+              {SEVERITY_LABEL[severity]}
+              <b>{count}</b>
+            </li>
+          ))
+        ) : (
+          <li className="ring-empty">Nothing recorded yet</li>
+        )}
+      </ul>
+    </div>
   );
 }
 function Metric({
@@ -140,7 +210,6 @@ function Metric({
   unit,
   sub,
   percent,
-  color,
   preview,
 }: {
   icon: ReactNode;
@@ -148,12 +217,11 @@ function Metric({
   value: string | number;
   unit?: string;
   sub: string;
-  percent: number;
-  color: string;
+  percent?: number;
   preview: boolean;
 }) {
   return (
-    <article className="metric">
+    <article className="metric" data-load={loadState(percent)}>
       <div className="metric-top">
         <span>
           {icon}
@@ -165,18 +233,13 @@ function Metric({
         {value}
         <span>{unit}</span>
       </div>
-      <div className="meter">
-        <i
-          style={{
-            width: `${Math.max(0, Math.min(percent, 100))}%`,
-            background: color,
-          }}
-        />
+      <div
+        className={`meter ${percent == null ? "meter-unscaled" : ""}`}
+        aria-hidden="true"
+      >
+        <i style={{ width: `${Math.max(0, Math.min(percent ?? 0, 100))}%` }} />
       </div>
-      <div className="metric-bottom">
-        {sub}
-        {preview && <Sparkline color={color} />}
-      </div>
+      <div className="metric-bottom">{sub}</div>
     </article>
   );
 }
@@ -209,6 +272,9 @@ export default function App() {
   const [download, setDownload] = useState(false);
   const [menu, setMenu] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const [filter, setFilter] = useState("all");
   async function call<T>(action: string, payload?: unknown) {
     if (!window.aegis)
@@ -279,6 +345,49 @@ export default function App() {
     if (download) dialogRef.current?.showModal();
     else dialogRef.current?.close();
   }, [download]);
+  useEffect(() => {
+    if (!menu) return;
+    const sidebar = sidebarRef.current;
+    sidebar?.querySelector<HTMLButtonElement>('[aria-current="page"]')?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenu(false);
+        menuButtonRef.current?.focus();
+      }
+      if (event.key === "Tab") {
+        const controls = [
+          ...Array.from(
+            sidebar?.querySelectorAll<HTMLElement>(
+              "a[href], button:not(:disabled)",
+            ) ?? [],
+          ),
+          menuButtonRef.current,
+        ].filter((element): element is HTMLElement => !!element);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    const media = window.matchMedia("(max-width: 720px)");
+    const resize = () => {
+      if (!media.matches) setMenu(false);
+    };
+    window.addEventListener("keydown", dismiss);
+    media.addEventListener("change", resize);
+    return () => {
+      window.removeEventListener("keydown", dismiss);
+      media.removeEventListener("change", resize);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [menu]);
   const findings = [
     ...(scan?.findings ?? []),
     ...(device?.findings ?? []),
@@ -286,10 +395,21 @@ export default function App() {
   const displayed = findings.filter(
     (f) => filter === "all" || f.severity === filter,
   );
+  const isolatedCount = quarantine.filter((item) => !item.restoredAt).length;
   const d = device;
   const activeEngine = engines.find((e) => e.available && e.id !== "eicar");
+  const scanTitle =
+    busy === "Scanning" || progress
+      ? "Your scan is in progress."
+      : scan?.status === "error"
+        ? "Your scan needs attention."
+        : scan?.status === "cancelled"
+          ? "Your scan was stopped."
+          : scan
+            ? "Your scan is ready to review."
+            : "Ready for your first scan.";
   async function startScan() {
-    setPage("Security scan");
+    go("Security scan");
     await run("Scanning", async () => {
       if (!desktop) {
         setProgress({
@@ -367,10 +487,17 @@ export default function App() {
     setPage(p);
     setMenu(false);
     setNotice("");
+    requestAnimationFrame(() => {
+      headingRef.current?.focus({ preventScroll: true });
+      window.scrollTo({ top: 0, behavior: "instant" });
+    });
   };
   return (
     <div className="app">
-      <aside className={`sidebar ${menu ? "expanded" : ""}`}>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
+      <aside ref={sidebarRef} className={`sidebar ${menu ? "expanded" : ""}`}>
         <a
           className="brand"
           href="#"
@@ -380,11 +507,11 @@ export default function App() {
           }}
         >
           <span className="brand-icon">
-            <Shield size={25} />
+            <BrandMark />
           </span>
           <span>
-            AEGIS<span className="brand-ai">AI</span>
-            <small>DEVICE SECURITY</small>
+            aegis<span className="brand-ai">AI</span>
+            <small>Device security</small>
           </span>
         </a>
         <div className="workspace">
@@ -392,46 +519,44 @@ export default function App() {
             <Cpu size={19} />
           </div>
           <div>
-            <strong>{desktop ? "This device" : "Explore Aegis"}</strong>
+            <strong>{desktop ? "This device" : "Example device"}</strong>
             <small>
-              {desktop
-                ? (d?.os ?? "Reading device…")
-                : "Interactive web preview"}
+              {desktop ? (d?.os ?? "Reading device…") : "Windows & macOS"}
             </small>
           </div>
           <ChevronRight size={15} />
         </div>
-        <div className="nav-label">WORKSPACE</div>
-        <nav>
-          {nav.map(([label, Icon], i) => (
+        <div className="nav-label">Device</div>
+        <nav id="primary-navigation" aria-label="Main navigation">
+          {nav.map(([label, Icon]) => (
             <button
               key={label}
               onClick={() => go(label)}
-              className={page === label ? "selected" : ""}
+              className={`${page === label ? "selected" : ""} ${label === "AI assistant" ? "nav-section-start" : ""}`}
               aria-current={page === label ? "page" : undefined}
             >
               <Icon size={19} />
               <span>{label}</span>
-              {label === "Quarantine" && quarantine.length > 0 && (
-                <span className="nav-count">{quarantine.length}</span>
+              {label === "Quarantine" && isolatedCount > 0 && (
+                <span className="nav-count">{isolatedCount}</span>
               )}
-              {i === 0 && <span className="active-mark" />}
+              {page === label && <span className="active-mark" />}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="open-source">
             <span className="tiny-shield">
-              <Shield size={20} />
+              <Github size={21} />
             </span>
-            <strong>Open by design.</strong>
+            <strong>Free. Open source.</strong>
             <p>
-              Your device. Your decisions.
+              Built by Heinrich.
               <br />
-              Every line of code, visible.
+              Available for everyone.
             </p>
             <a href={REPO} target="_blank" rel="noreferrer">
-              Explore the source <ArrowUpRight size={15} />
+              View source code <ArrowUpRight size={15} />
             </a>
           </div>
           <a
@@ -448,20 +573,34 @@ export default function App() {
           </a>
         </div>
       </aside>
+      {menu && (
+        <button
+          className="menu-scrim"
+          aria-label="Close navigation"
+          tabIndex={-1}
+          onClick={() => {
+            setMenu(false);
+            menuButtonRef.current?.focus();
+          }}
+        />
+      )}
       <div className="main-shell">
         <header className="topbar">
           <button
+            ref={menuButtonRef}
             className="mobile-menu icon-button"
             aria-label="Toggle navigation"
+            aria-expanded={menu}
+            aria-controls="primary-navigation"
             onClick={() => setMenu(!menu)}
           >
             <Menu />
           </button>
           <div className="breadcrumbs">
-            Workspace <ChevronRight size={14} />
+            My device <ChevronRight size={14} />
             <span>{page}</span>
           </div>
-          <div className="top-actions">
+          <div className="top-actions" inert={menu}>
             <Badge tone={desktop ? "mint" : "amber"}>
               {desktop ? <Cpu size={12} /> : <Globe size={12} />}{" "}
               {desktop ? "DESKTOP CONNECTED" : "WEB PREVIEW"}
@@ -480,29 +619,31 @@ export default function App() {
             </button>
           </div>
         </header>
-        <main>
+        <main id="main-content" tabIndex={-1} inert={menu}>
           <div className="page-heading">
             <div>
-              <div className="eyebrow">YOUR DEVICE, IN FOCUS</div>
-              <h1>{page === "Overview" ? "Security, with clarity." : page}</h1>
+              <h1 ref={headingRef} tabIndex={-1}>
+                {page === "Overview" ? "Device overview" : page}
+              </h1>
               <p>
                 {
                   (
                     {
                       Overview:
-                        "One place to understand, protect, and tune your device.",
+                        "Review your security and keep your device running well.",
                       "Security scan":
                         "Inspect the files you choose. Review every finding.",
                       Network:
                         "Understand your connections and local exposure.",
                       Performance:
-                        "See what your device is working on. Give it room to breathe.",
+                        "Review resource usage and choose a power profile.",
                       "Device cleanup":
                         "Reclaim space carefully, with a review before removal.",
                       Quarantine: "Detected files, isolated and recoverable.",
                       "AI assistant":
                         "Turn security findings into a clear next step.",
-                      Settings: "Protection that works on your terms.",
+                      Settings:
+                        "Manage scanning, monitoring, and connected tools.",
                     } as Record<string, string>
                   )[page]
                 }
@@ -522,10 +663,11 @@ export default function App() {
           </div>
           {!desktop && (
             <div className="preview-notice">
-              <Info size={17} />
+              <Globe size={17} />
               <span>
-                <strong>You’re exploring a preview.</strong> Example data is
-                shown. Download the desktop app to scan and protect your device.
+                <strong>Web preview</strong>
+                <span className="preview-divider" /> These readings are
+                examples. Use the desktop app to check your device.
               </span>
               <button onClick={() => setDownload(true)}>
                 Get the app <ArrowRight size={14} />
@@ -546,26 +688,15 @@ export default function App() {
           )}
           {page === "Overview" && (
             <>
-              <section className="hero-grid">
+              <section className="hero-grid" aria-label="Security overview">
                 <article className="protection-card">
                   <div className="protection-copy">
-                    <div className="eyebrow mint">
-                      <span className="status-dot" />
-                      {desktop
-                        ? "LOCAL SECURITY WORKBENCH"
-                        : "MEET YOUR DEVICE’S NEW ALLY"}
-                    </div>
-                    <h2>
-                      {desktop
-                        ? scan
-                          ? "Your scan is ready."
-                          : "Start with a closer look."
-                        : "A little more peace of mind."}
-                    </h2>
+                    <span className="eyebrow">Security scan</span>
+                    <h2>{scanTitle}</h2>
                     <p>
                       {desktop
-                        ? "Run a scan, understand the results, and choose what happens next."
-                        : "A clear view of your security. Thoughtful tools for a healthier device. And you, always in control."}
+                        ? "Check your files for threats, review the results, and decide what happens next."
+                        : "See how Aegis checks files, explains findings, and keeps detected threats in quarantine."}
                     </p>
                     <div className="hero-buttons">
                       <button
@@ -573,49 +704,50 @@ export default function App() {
                         onClick={startScan}
                         disabled={!!busy}
                       >
-                        <ScanLine size={18} />
-                        {desktop
-                          ? "Start a security scan"
-                          : "Explore a demo scan"}
+                        <ScanLine size={19} />
+                        {desktop ? "Start scan" : "Run demo scan"}
                         <ArrowRight size={17} />
                       </button>
                       <button
                         className="text-button"
-                        onClick={() => go("Settings")}
+                        onClick={() => go("Security scan")}
                       >
-                        Protection settings <ChevronRight size={15} />
+                        Scan options <ChevronRight size={16} />
                       </button>
                     </div>
                     <div className="hero-foot">
-                      <Lock size={13} />
+                      <Lock size={14} />
                       {desktop
-                        ? "Files stay on this device. AI analysis is opt-in."
-                        : "Local-first design · Windows & macOS"}
+                        ? "File scanning happens on your device"
+                        : "No files are accessed in this preview"}
                     </div>
                   </div>
-                  <div className="shield-art" aria-hidden="true">
-                    <div className="orbit one" />
-                    <div className="orbit two" />
-                    <div className="orbit three" />
-                    <div className="cross-hair top" />
-                    <div className="cross-hair bottom" />
-                    <div className="shield-core">
-                      <Shield size={104} strokeWidth={1} />
-                      <Check className="shield-check" size={38} />
-                    </div>
-                    <span className="orbit-point p1" />
-                    <span className="orbit-point p2" />
-                    <span className="art-label">AEGIS / DEVICE GUARD</span>
+                  <ReviewRing findings={findings} />
+                  <div className="scan-summary">
+                    <span>
+                      <FolderSearch size={15} />
+                      {scan
+                        ? `${scan.scanned.toLocaleString()} files inspected${desktop ? "" : " · demo"}`
+                        : "No scan performed"}
+                    </span>
+                    <span>
+                      <Archive size={15} />
+                      {isolatedCount} quarantined
+                    </span>
+                    <span>
+                      <AlertTriangle size={15} />
+                      {findings.length} to review
+                    </span>
                   </div>
                 </article>
                 <article className="card coverage">
                   <div className="card-heading">
-                    <h3>Protection at a glance</h3>
-                    <Shield size={18} />
+                    <h3>Protection status</h3>
+                    <Shield size={20} />
                   </div>
                   <div className="coverage-row">
                     <span>
-                      <ScanLine size={16} />
+                      <ScanLine size={18} />
                       Malware engine
                     </span>
                     <Badge tone={activeEngine ? "mint" : "amber"}>
@@ -628,48 +760,56 @@ export default function App() {
                   </div>
                   <div className="coverage-row">
                     <span>
-                      <Download size={16} />
+                      <Download size={18} />
                       Download watch
                     </span>
-                    <Badge tone={settings.watchDownloads ? "mint" : "neutral"}>
+                    <span
+                      className={`status-value ${settings.watchDownloads ? "enabled" : ""}`}
+                    >
                       {settings.watchDownloads ? "On" : "Off"}
-                    </Badge>
+                      <i />
+                    </span>
                   </div>
                   <div className="coverage-row">
                     <span>
-                      <NetworkIcon size={16} />
+                      <NetworkIcon size={18} />
                       Network watch
                     </span>
-                    <Badge tone={settings.watchNetwork ? "mint" : "neutral"}>
+                    <span
+                      className={`status-value ${settings.watchNetwork ? "enabled" : ""}`}
+                    >
                       {settings.watchNetwork ? "On" : "Off"}
-                    </Badge>
+                      <i />
+                    </span>
                   </div>
                   <div className="coverage-row">
                     <span>
-                      <Archive size={16} />
+                      <Archive size={18} />
                       Auto-quarantine
                     </span>
-                    <Badge tone={settings.autoQuarantine ? "mint" : "neutral"}>
+                    <span
+                      className={`status-value ${settings.autoQuarantine ? "enabled" : ""}`}
+                    >
                       {settings.autoQuarantine ? "On" : "Off"}
-                    </Badge>
-                  </div>
-                  <div className="coverage-note">
-                    <Info size={14} />
-                    <span>
-                      {desktop
-                        ? "Coverage depends on permissions and installed engines."
-                        : "Preview mode does not provide protection."}
+                      <i />
                     </span>
                   </div>
+                  <button
+                    className="coverage-settings text-button"
+                    onClick={() => go("Settings")}
+                  >
+                    Manage protection <ArrowRight size={16} />
+                  </button>
+                  <p className="coverage-note">
+                    {desktop
+                      ? "Coverage depends on your installed engine."
+                      : "Protection requires the desktop app."}
+                  </p>
                 </article>
               </section>
               <div className="section-heading">
                 <h3>Device vitals</h3>
-                <span>
-                  {desktop ? "On-demand readings" : "SAMPLE READINGS"}{" "}
-                  <span className="separator">/</span> A little context goes a
-                  long way
-                </span>
+                <span>{desktop ? "Current readings" : "Example readings"}</span>
               </div>
               <div className="metrics-grid">
                 <Metric
@@ -679,21 +819,19 @@ export default function App() {
                   unit="%"
                   sub={d?.cpu.brand ?? "Waiting for device"}
                   percent={d?.cpu.usage ?? 0}
-                  color="var(--mint)"
                   preview={!desktop}
                 />
                 <Metric
                   icon={<MemoryStick size={17} />}
                   title="Memory"
                   value={d ? bytes(d.memory.used).split(" ")[0] : "—"}
-                  unit="GB"
+                  unit={d ? bytes(d.memory.used).split(" ")[1] : "GB"}
                   sub={
                     d
                       ? `${bytes(d.memory.total)} total · ${pct(d.memory.percent)}% used`
                       : "Waiting for device"
                   }
                   percent={d?.memory.percent ?? 0}
-                  color="var(--blue)"
                   preview={!desktop}
                 />
                 <Metric
@@ -707,7 +845,6 @@ export default function App() {
                       : "No reading available"
                   }
                   percent={d?.disks[0]?.percent ?? 0}
-                  color="var(--purple)"
                   preview={!desktop}
                 />
                 <Metric
@@ -720,8 +857,6 @@ export default function App() {
                       ? "Sensor unavailable"
                       : "Temperature reading · limits vary by device"
                   }
-                  percent={d?.cpu.temperature ?? 0}
-                  color="var(--amber)"
                   preview={!desktop}
                 />
               </div>
@@ -729,9 +864,7 @@ export default function App() {
                 <article className="card findings-card">
                   <div className="card-heading">
                     <h3>
-                      {desktop
-                        ? "Worth a closer look"
-                        : "What Aegis helps you spot"}
+                      {desktop ? "Recommended actions" : "Example findings"}
                       <span className="count">{findings.length}</span>
                     </h3>
                     <button
@@ -748,7 +881,7 @@ export default function App() {
                         key={f.id}
                         onClick={() =>
                           go(
-                            f.category === "Performance"
+                            f.category.toLowerCase() === "performance"
                               ? "Performance"
                               : "Security scan",
                           )
@@ -776,16 +909,16 @@ export default function App() {
                 </article>
                 <article className="card ai-card">
                   <div className="ai-symbol">
-                    <Sparkles size={24} />
+                    <MessageSquareText size={24} />
                   </div>
-                  <Badge>YOUR EXISTING AI, CONNECTED</Badge>
-                  <h3>A second set of eyes.</h3>
+                  <span className="eyebrow">AI assistant</span>
+                  <h3>Understand a finding.</h3>
                   <p>
-                    Understand findings with Codex or Claude, using a supported
-                    local login. Offline guidance is always available.
+                    Get an explanation and practical next steps. Connect your
+                    existing Codex or Claude login, or use offline guidance.
                   </p>
                   <button className="button" onClick={() => go("AI assistant")}>
-                    Meet your AI assistant <ArrowRight size={15} />
+                    Explain my findings <ArrowRight size={15} />
                   </button>
                   <div className="provider-logos">
                     <span>
@@ -851,8 +984,22 @@ export default function App() {
                     </div>
                   ) : scan ? (
                     <>
-                      <Badge tone="mint">
-                        {desktop ? scan.status : "DEMO COMPLETE"}
+                      <Badge
+                        tone={
+                          scan.status === "error"
+                            ? "danger"
+                            : scan.status === "cancelled"
+                              ? "amber"
+                              : "mint"
+                        }
+                      >
+                        {desktop
+                          ? scan.status === "error"
+                            ? "Scan incomplete"
+                            : scan.status === "cancelled"
+                              ? "Scan stopped"
+                              : "Scan complete"
+                          : "Demo complete"}
                       </Badge>
                       <div className="scan-stats">
                         <div>
@@ -903,19 +1050,13 @@ export default function App() {
               </div>
               <div className="finding-list">
                 {displayed.map((f) => (
-                  <article className="card finding-detail" key={f.id}>
+                  <article
+                    className="card finding-detail"
+                    data-severity={f.severity}
+                    key={f.id}
+                  >
                     <div>
-                      <Badge
-                        tone={
-                          f.severity === "high" || f.severity === "critical"
-                            ? "danger"
-                            : f.severity === "medium"
-                              ? "amber"
-                              : "neutral"
-                        }
-                      >
-                        {f.severity}
-                      </Badge>
+                      <Badge tone={sevTone(f.severity)}>{f.severity}</Badge>
                       <span className="micro">{f.category}</span>
                     </div>
                     <h3>{f.title}</h3>
@@ -977,7 +1118,7 @@ export default function App() {
                 </div>
                 <div>
                   <Badge tone="mint">LOCAL EXPOSURE AUDIT</Badge>
-                  <h2>Know what’s connected.</h2>
+                  <h2>Review your network connections.</h2>
                   <p>
                     Review network interfaces, listening services, and firewall
                     status. Network monitoring flags gateway changes; it cannot
@@ -1034,8 +1175,8 @@ export default function App() {
                     disabled={!!busy}
                   />
                   <p className="fine-print">
-                    No Wi-Fi deauthentication, password attacks, packet
-                    interception, or scanning of other people’s devices.
+                    This audit covers connections on this device. Other devices
+                    on your Wi-Fi are not assessed.
                   </p>
                 </article>
               </div>
@@ -1107,6 +1248,7 @@ export default function App() {
                     ).map(([id, label, Icon]) => (
                       <button
                         className={profile === id ? "active" : ""}
+                        aria-pressed={profile === id}
                         key={id}
                         onClick={() => setProfile(id)}
                       >
@@ -1265,7 +1407,7 @@ export default function App() {
                 <div className="large-icon">
                   <HardDrive size={32} />
                 </div>
-                <h2>A little breathing room.</h2>
+                <h2>Review files you can remove.</h2>
                 <p>
                   Choose a folder to find temporary files and logs (.tmp, .temp,
                   .log) older than 7 days. Review candidates, then move them to
@@ -1394,6 +1536,19 @@ export default function App() {
                           void run("Restoring", async () => {
                             await call("quarantine.restore", { id: q.id });
                             setQuarantine(await call("quarantine.list"));
+                            setScan((previous) =>
+                              previous
+                                ? {
+                                    ...previous,
+                                    findings: previous.findings.map(
+                                      (finding) =>
+                                        finding.id === q.findingId
+                                          ? { ...finding, quarantined: false }
+                                          : finding,
+                                    ),
+                                  }
+                                : previous,
+                            );
                             setNotice(
                               "File restored. Re-scan it before opening.",
                             );
@@ -1412,9 +1567,9 @@ export default function App() {
             <div className="assistant-grid">
               <article className="card">
                 <div className="ai-symbol">
-                  <Sparkles size={25} />
+                  <MessageSquareText size={25} />
                 </div>
-                <h2>More context. Better decisions.</h2>
+                <h2>Explain your scan results.</h2>
                 <p>
                   Analyze a redacted summary of your readings and findings. File
                   contents stay on your device. Selecting a cloud provider sends
@@ -1471,7 +1626,7 @@ export default function App() {
                   {busy === "Analyzing" ? (
                     <LoaderCircle className="spin" size={17} />
                   ) : (
-                    <Sparkles size={17} />
+                    <MessageSquareText size={17} />
                   )}{" "}
                   {provider === "local"
                     ? "Analyze locally"
@@ -1491,8 +1646,8 @@ export default function App() {
                   <pre className="analysis-text">{answer}</pre>
                 ) : (
                   <div className="empty tall">
-                    <Sparkles size={38} />
-                    <h3>A clear next step starts here.</h3>
+                    <MessageSquareText size={38} />
+                    <h3>Your explanation will appear here.</h3>
                     <p>Run a scan, then ask for an explanation.</p>
                   </div>
                 )}
@@ -1598,7 +1753,7 @@ export default function App() {
                     <Github size={16} />
                     Source code & license
                   </a>
-                  <span>Version 0.1.0 · Created by Heinrich</span>
+                  <span>Version 0.2.0 · Created by Heinrich</span>
                 </div>
               </article>
             </>
@@ -1606,7 +1761,7 @@ export default function App() {
           <footer>
             <span>
               <Shield size={13} /> AEGIS AI <span className="separator">/</span>{" "}
-              Built for a little more confidence.
+              Device security & performance
             </span>
             <span>
               Created by{" "}
@@ -1617,12 +1772,13 @@ export default function App() {
               >
                 Heinrich
               </a>{" "}
-              <span className="separator">·</span> Open source, always.
+              <span className="separator">·</span> MIT licensed
             </span>
           </footer>
         </main>
       </div>
       <dialog
+        aria-labelledby="download-title"
         ref={dialogRef}
         onCancel={() => setDownload(false)}
         onClick={(e) => {
@@ -1640,7 +1796,7 @@ export default function App() {
           <Shield size={33} />
         </div>
         <Badge>AEGIS AI / DESKTOP</Badge>
-        <h2>Your device. A clearer picture.</h2>
+        <h2 id="download-title">Get Aegis for your desktop.</h2>
         <p>
           Download an executable from GitHub Releases, or build from source.
           These early builds are unsigned and are not a certified antivirus

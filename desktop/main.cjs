@@ -160,7 +160,7 @@ async function createWindow() {
     height: 960,
     minWidth: 720,
     minHeight: 640,
-    backgroundColor: "#0b1015",
+    backgroundColor: "#f2f3f7",
     title: "Aegis AI",
     show: false,
     webPreferences: {

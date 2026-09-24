@@ -1,1 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#0b131a"/><path d="M32 10 50 17v15c0 12-18 23-18 23S14 44 14 32V17Z" fill="none" stroke="#85e6bd" stroke-width="4"/><path d="m23 32 6 6 13-14" fill="none" stroke="#85e6bd" stroke-width="4"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="a" x1="8" y1="2" x2="56" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f2485e"/>
+      <stop offset=".55" stop-color="#e01b35"/>
+      <stop offset="1" stop-color="#970f21"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#a)"/>
+  <path fill="#fff" fill-rule="evenodd" d="M13 12h38v24L32 54 13 36V12Zm9 27 10-23 10 23h-7l-3-8-3 8h-7Z"/>
+</svg>
